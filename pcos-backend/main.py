@@ -1,42 +1,37 @@
-from fastapi import FastAPI, Depends
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from datetime import date
-from models import Base, SymptomLog
+from fastapi import FastAPI
+from pydantic import BaseModel
+import sqlite3
 
-# FastAPI app
 app = FastAPI()
 
-# Database setup
-DATABASE_URL = "sqlite:///./database.db"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base.metadata.create_all(bind=engine)
+# Connect to the same SQLite database
+conn = sqlite3.connect("pcos_tracker.db", check_same_thread=False)
+cursor = conn.cursor()
 
-# Dependency for DB session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# Pydantic model for data validation
+class HealthData(BaseModel):
+    date: str
+    period_length: int
+    symptoms: str
+    mood: str
 
-# --- API Routes ---
-@app.post("/logs/")
-def create_log(cycle_length: int, acne: str, mood: str, weight: float, db: Session = Depends(get_db)):
-    log = SymptomLog(
-        date=str(date.today()),
-        cycle_length=cycle_length,
-        acne=acne,
-        mood=mood,
-        weight=weight
+# POST endpoint to add new data
+@app.post("/add")
+def add_health_data(data: HealthData):
+    cursor.execute(
+        "INSERT INTO health_data (date, period_length, symptoms, mood) VALUES (?, ?, ?, ?)",
+        (data.date, data.period_length, data.symptoms, data.mood)
     )
-    db.add(log)
-    db.commit()
-    db.refresh(log)
-    return {"message": "✅ Log saved!", "id": log.id}
+    conn.commit()
+    return {"message": "Data added successfully!"}
 
-@app.get("/logs/")
-def get_logs(db: Session = Depends(get_db)):
-    logs = db.query(SymptomLog).all()
-    return logs
+# GET endpoint to fetch all data
+@app.get("/all")
+def get_all_data():
+    cursor.execute("SELECT * FROM health_data")
+    rows = cursor.fetchall()
+    return {"data": rows}
+
+@app.get("/")
+def root():
+    return {"message": "Welcome to the PCOS Health Tracker API!"}
